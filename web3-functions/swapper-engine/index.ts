@@ -1,16 +1,22 @@
-import { Log } from "@ethersproject/providers";
-import { Web3Function, Web3FunctionContext } from "@gelatonetwork/web3-functions-sdk";
+import { JsonRpcProvider } from "@ethersproject/providers";
+import { Wallet } from "@ethersproject/wallet";
+import { AutomateSDK, TriggerType } from "@gelatonetwork/automate-sdk";
+import { Web3FunctionBuilder } from "@gelatonetwork/web3-functions-sdk/builder";
 import { Contract } from "@ethersproject/contracts";
-import { ethers } from "ethers";
+import dotenv from "dotenv";
+import path from "path";
+dotenv.config();
+
+if (!process.env.PRIVATE_KEY) throw new Error("Missing env PRIVATE_KEY");
+const pk = process.env.PRIVATE_KEY;
+
+if (!process.env.PROVIDER_URLS) throw new Error("Missing env PROVIDER_URLS");
+const providerUrl = process.env.PROVIDER_URLS.split(",")[0];
 
 const MAX_RANGE = 1000; // limit range of events to comply with rpc providers
 const MAX_REQUESTS = 100; // limit number of requests on every execution to avoid hitting timeout
-const SWAPPER_ENGINE_ABI = [
-  "event Deposit(address indexed requester, uint256 indexed orderId, uint256 amount)"
-];
-const DAO_COLLATERAL_ABI = [
-  "function swapRWAtoStbcIntent(uint256[] orderIdsToTake, (uint256 deadline, uint8 v, bytes32 r, bytes32 s) approval, (address recipient, address rwaToken, uint256 amountInTokenDecimals, uint256 deadline, bytes signature) intent, bool partialMatching)"
-];
+const SWAPPER_ENGINE_ABI = ["event Deposit(address indexed requester, uint256 indexed orderId, uint256 amount)"];
+const DAO_COLLATERAL_ABI = ["function swapRWAtoStbc(address rwaToken, uint256 amountInTokenDecimals, bool partialMatching, uint256[] calldata orderIdsToTake, (uint256 deadline, uint8 v, bytes32 r, bytes32 s) approval)"];
 
 Web3Function.onRun(async (context: Web3FunctionContext) => {
   const { userArgs, storage, multiChainProvider } = context;
@@ -56,7 +62,7 @@ Web3Function.onRun(async (context: Web3FunctionContext) => {
   }
 
   let rtnId = 0;
-  let rtnAmount = ethers.BigNumber.from(0);
+  let rtnAmount = 0;
   // Parse retrieved events
   console.log(`Matched ${logs.length} new events`);
   const nbNewEvents = logs.length;
@@ -86,19 +92,12 @@ Web3Function.onRun(async (context: Web3FunctionContext) => {
 
   const blockTimestamp: any = (await provider.getBlock(currentBlock)).timestamp;
 
-  const approval: any = {
-    deadline: blockTimestamp + 3600, // Replace with actual value
-    v: 27, // Replace with actual value
-    r: "0x1234567890123456789012345678901234567890123456789012345678901234", // Replace with actual value
-    s: "0x2345678901234567890123456789012345678901234567890123456789012345" // Replace with actual value
-  };
-  const intent: any = {
-    recipient: "0x1234567890123456789012345678901234567890", // Replace with actual value
-    rwaToken: "0x2345678901234567890123456789012345678901", // Replace with actual value
-    amountInTokenDecimals: rtnAmount, // Replace with actual value
-    deadline: blockTimestamp + 3600, // Replace with actual value
-    signature: "0x1234567890123456789012345678901234567890123456789012345678901234" // Replace with actual value
-  };
+  const approval: [number, number, string, string] = [
+    blockTimestamp + 3600, // deadline
+    27, // v
+    "0x1234567890123456789012345678901234567890123456789012345678901234", // r
+    "0x2345678901234567890123456789012345678901234567890123456789012345" // s
+  ];
   const partialMatching: boolean = false; // Replace with actual value
 
   // Increase number of events matched on our OracleCounter contract
@@ -107,7 +106,13 @@ Web3Function.onRun(async (context: Web3FunctionContext) => {
     callData: [
       {
         to: daoCollateralAddress,
-        data: daoCollateral.interface.encodeFunctionData("swapRWAtoStbcIntent", [orderIdsToTake, approval, intent, partialMatching]),
+        data: daoCollateral.interface.encodeFunctionData("swapRWAtoStbc", [
+          "0x2345678901234567890123456789012345678901", // rwaToken, replace with actual value
+          rtnAmount, // amountInTokenDecimals
+          partialMatching, // partialMatching
+          orderIdsToTake, // orderIdsToTake
+          approval // approval tuple
+        ]),
       }
     ],
   };
