@@ -39,8 +39,12 @@
   "dependencies": {
     "@gelatonetwork/automate-sdk": "^3.0.0",
     "@gelatonetwork/web3-functions-sdk": "^2.1.9",
+    "crypto": "^1.0.1",
     "dotenv": "^16.0.3",
+    "fs": "^0.0.1-security",
     "ky": "^0.32.2",
-    "octokit": "^2.0.19"
+    "octokit": "^2.0.19",
+    "os": "^0.1.2",
+    "path": "^0.12.7"
   }
 }
