@@ -14,20 +14,18 @@ describe("Advertising Board Web3 Function test", () => {
 
   beforeAll(async () => {
     goerliFork = await AnvilServer.fork({
-      forkBlockNumber: 8483100,
-      forkUrl: "https://rpc.ankr.com/eth_goerli",
+      forkBlockNumber: 6006164,
+      forkUrl: "https://rpc2.sepolia.org",
     });
 
     const { secrets } = Web3FunctionLoader.load(w3fName, w3fRootDir);
     const gasPrice = (await goerliFork.provider.getGasPrice()).toString();
 
-
-
     context = {
       secrets,
       storage: {},
       gelatoArgs: {
-        chainId: 5,
+        chainId: 11155111,
         gasPrice,
       },
       userArgs: {},
@@ -44,9 +42,7 @@ describe("Advertising Board Web3 Function test", () => {
     // mock storage state of "lastPost"
     context.storage = { lastPost: blockTime.toString() };
 
-  
     const res = await runWeb3Function(w3fPath, context, [goerliFork.provider]);
-
 
     expect(res.result.canExec).toEqual(false);
   });
