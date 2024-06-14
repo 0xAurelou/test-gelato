@@ -1,29 +1,28 @@
 import { Log } from "@ethersproject/providers";
-import {
-  Web3Function,
-  Web3FunctionContext,
-} from "@gelatonetwork/web3-functions-sdk";
+import { Web3Function, Web3FunctionContext } from "@gelatonetwork/web3-functions-sdk";
 import { Contract } from "@ethersproject/contracts";
+import { ethers } from "ethers";
 
-const MAX_RANGE = 100; // limit range of events to comply with rpc providers
+const MAX_RANGE = 1000; // limit range of events to comply with rpc providers
 const MAX_REQUESTS = 100; // limit number of requests on every execution to avoid hitting timeout
-const ORACLE_ABI = ["event PriceUpdated(uint256 indexed time, uint256 price)"];
-const COUNTER_ABI = ["function increaseCount(uint256)"];
+const SWAPPER_ENGINE_ABI = [
+  "event Deposit(address indexed requester, uint256 indexed orderId, uint256 amount)"
+];
+const DAO_COLLATERAL_ABI = [
+  "function swapRWAtoStbcIntent(uint256[] orderIdsToTake, (uint256 deadline, uint8 v, bytes32 r, bytes32 s) approval, (address recipient, address rwaToken, uint256 amountInTokenDecimals, uint256 deadline, bytes signature) intent, bool partialMatching)"
+];
 
 Web3Function.onRun(async (context: Web3FunctionContext) => {
   const { userArgs, storage, multiChainProvider } = context;
 
   const provider = multiChainProvider.default();
 
-  // Create oracle & counter contract
-  const oracleAddress =
-    (userArgs.oracle as string) ?? "0x71B9B0F6C999CBbB0FeF9c92B80D54e4973214da";
-  const counterAddress =
-    (userArgs.counter as string) ??
-    "0x8F143A5D62de01EAdAF9ef16d4d3694380066D9F";
-  const oracle = new Contract(oracleAddress, ORACLE_ABI, provider);
-  const counter = new Contract(counterAddress, COUNTER_ABI, provider);
-  const topics = [oracle.interface.getEventTopic("PriceUpdated")];
+  // Create Swapper Engine event contract
+  const swapperEngineAddress = userArgs.swapperEngine as string;
+  const daoCollateralAddress = userArgs.daoCollateral as string;
+  const swapperEngine = new Contract(swapperEngineAddress, SWAPPER_ENGINE_ABI, provider);
+  const daoCollateral = new Contract(daoCollateralAddress, DAO_COLLATERAL_ABI, provider);
+  const topics = [swapperEngine.interface.getEventTopic("Deposit")];
   const currentBlock = await provider.getBlockNumber();
 
   // Retrieve last processed block number & nb events matched from storage
@@ -43,7 +42,7 @@ Web3Function.onRun(async (context: Web3FunctionContext) => {
     console.log(`Fetching log events from blocks ${fromBlock} to ${toBlock}`);
     try {
       const eventFilter = {
-        address: oracleAddress,
+        address: swapperEngineAddress,
         topics,
         fromBlock,
         toBlock,
@@ -56,15 +55,19 @@ Web3Function.onRun(async (context: Web3FunctionContext) => {
     }
   }
 
+  let rtnId = 0;
+  let rtnAmount = ethers.BigNumber.from(0);
   // Parse retrieved events
   console.log(`Matched ${logs.length} new events`);
   const nbNewEvents = logs.length;
   totalEvents += logs.length;
   for (const log of logs) {
-    const event = oracle.interface.parseLog(log);
-    const [time, price] = event.args;
+    const event = swapperEngine.interface.parseLog(log);
+    const [requester, orderId, amount] = event.args;
+    rtnId = orderId;
+    rtnAmount = amount;
     console.log(
-      `Price updated: ${price}$ at ${new Date(time * 1000).toUTCString()}`
+      `Event Found: requester ${requester}, orderId: ${orderId}, amount ${amount} `
     );
   }
 
@@ -79,16 +82,33 @@ Web3Function.onRun(async (context: Web3FunctionContext) => {
     };
   }
 
+  const orderIdsToTake: number[] = [rtnId];
+
+  const blockTimestamp: any = (await provider.getBlock(currentBlock)).timestamp;
+
+  const approval: any = {
+    deadline: blockTimestamp + 3600, // Replace with actual value
+    v: 27, // Replace with actual value
+    r: "0x1234567890123456789012345678901234567890123456789012345678901234", // Replace with actual value
+    s: "0x2345678901234567890123456789012345678901234567890123456789012345" // Replace with actual value
+  };
+  const intent: any = {
+    recipient: "0x1234567890123456789012345678901234567890", // Replace with actual value
+    rwaToken: "0x2345678901234567890123456789012345678901", // Replace with actual value
+    amountInTokenDecimals: rtnAmount, // Replace with actual value
+    deadline: blockTimestamp + 3600, // Replace with actual value
+    signature: "0x1234567890123456789012345678901234567890123456789012345678901234" // Replace with actual value
+  };
+  const partialMatching: boolean = false; // Replace with actual value
+
   // Increase number of events matched on our OracleCounter contract
   return {
     canExec: true,
     callData: [
       {
-        to: counterAddress,
-        data: counter.interface.encodeFunctionData("increaseCount", [
-          nbNewEvents,
-        ]),
-      },
+        to: daoCollateralAddress,
+        data: daoCollateral.interface.encodeFunctionData("swapRWAtoStbcIntent", [orderIdsToTake, approval, intent, partialMatching]),
+      }
     ],
   };
 });
